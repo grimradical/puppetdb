@@ -178,19 +178,6 @@
 
 ;; ## Ring helpers
 
-(defn acceptable-content-type
-  "Returns a boolean indicating whether the `candidate` mime type
-  matches any of those listed in `header`, an Accept header."
-  [candidate header]
-  {:pre [(string? candidate)]}
-  (if-not (string? header)
-    true
-    (let [[prefix suffix] (.split candidate "/")
-          wildcard        (str prefix "/*")
-          types           (set (clojure.string/split header #","))]
-      (or (types wildcard)
-          (types candidate)))))
-
 (defn json-response
   "Returns a Ring response object with the supplied body and a JSON
   content type"

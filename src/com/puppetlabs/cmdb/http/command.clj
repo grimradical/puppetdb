@@ -21,45 +21,40 @@
 (ns com.puppetlabs.cmdb.http.command
   (:require [clojure.contrib.logging :as log]
             [com.puppetlabs.mq :as mq]
-            [com.puppetlabs.utils :as pl-utils]
+            [com.puppetlabs.washboard :as wb]
             [cheshire.core :as json]
             [clamq.protocol.producer :as mq-producer]
-            [clamq.protocol.connection :as mq-conn]
-            [ring.util.response :as rr]))
+            [clamq.protocol.connection :as mq-conn]))
 
 (defn http->mq
   "Takes the given command and submits it to the specified endpoint on
   the indicated MQ.
 
   If successful, this function returns a JSON `true`."
-  [payload mq-spec mq-endpoint]
+  [req {:keys [payload mq-spec mq-endpoint]} resp]
   {:pre  [(string? payload)
           (string? mq-spec)
           (string? mq-endpoint)]
-   :post [(string? %)]}
+   :post [(map? %)]}
   (with-open [conn (mq/connect! mq-spec)]
     (let [producer (mq-conn/producer conn)]
       (mq-producer/publish producer mq-endpoint payload)))
-  (json/generate-string true))
+  (-> resp
+      (assoc :body (json/generate-string true))))
 
-(defn command-app
-  "Ring app for processing commands"
-  [{:keys [params headers globals] :as request}]
-  (cond
-   (not (params "payload"))
-   (-> (rr/response "missing payload")
-       (rr/status 400))
+(defn malformed-request?
+  [{:keys [params globals] :as req} heap resp]
+  (let [heap (-> heap
+                 (assoc :payload (params "payload"))
+                 (assoc :mq-spec (get-in globals [:command-mq :connection-string]))
+                 (assoc :mq-endpoint (get-in globals [:command-mq :endpoint])))]
+    (if (:payload heap)
+      {:result false, :heap heap}
+      {:result true, :heap heap, :resp (assoc resp :body "missing payload")})))
 
-   (not (pl-utils/acceptable-content-type
-         "application/json"
-         (headers "accept")))
-   (-> (rr/response "must accept application/json")
-       (rr/status 406))
+(def state-machine
+  {:allowed-methods        (constantly {:result #{:post}})
+   :malformed-request?      malformed-request?
+   :content-types-provided (constantly {:result {"application/json" http->mq}})})
 
-   :else
-   (-> (http->mq (params "payload")
-                 (get-in globals [:command-mq :connection-string])
-                 (get-in globals [:command-mq :endpoint]))
-       (rr/response)
-       (rr/header "Content-Type" "application/json")
-       (rr/status 200))))
+(def command-app (wb/washboard-handler state-machine))

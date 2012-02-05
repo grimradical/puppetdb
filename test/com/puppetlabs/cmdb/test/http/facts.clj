@@ -24,11 +24,11 @@
   "Return a GET request against path, suitable as an argument to a Clothesline
   app. Params supported are content-type and query-string."
   ([path] (make-request path {}))
-  ([path {keys [:query-string :content-type]
-          :or {:query-string "" :content-type *content-type*} :as params}]
-     (let [request (request :get path (:query-string params))
+  ([path {:keys [query-string content-type]
+          :or {query-string "" content-type *content-type*}}]
+     (let [request (request :get path query-string)
            headers (:headers request)]
-       (assoc request :headers (assoc headers "Accept" (:content-type params))))))
+       (assoc request :headers (assoc headers "accept" content-type)))))
 
 (deftest fact-set-handler
   (let [certname_with_facts "got_facts"

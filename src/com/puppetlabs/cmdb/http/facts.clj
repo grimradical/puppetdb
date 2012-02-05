@@ -14,35 +14,38 @@
 (ns com.puppetlabs.cmdb.http.facts
   (:require [cheshire.core :as json]
             [com.puppetlabs.utils :as utils]
-            [com.puppetlabs.cmdb.query.facts :as f]
-            [ring.util.response :as rr]))
+            [com.puppetlabs.washboard :as wb]
+            [com.puppetlabs.cmdb.query.facts :as f]))
 
-(defn produce-body
+(defn facts->json
   "Produce a response body for a request to lookup facts for `node`."
-  [node db]
-  (let [facts (f/facts-for-node db node)]
-    (if-not (seq facts)
-      (-> {:error (str "Could not find facts for " node)}
-          (utils/json-response)
-          (rr/status 404))
-      (-> (json/generate-string {:name node :facts facts})
-          (rr/response)
-          (rr/header "Content-Type" "application/json")
-          (rr/status 200)))))
+  [req {:keys [node facts]} resp]
+  (assoc resp :body (json/generate-string {:name node :facts facts})))
 
-(defn facts-app
-  "Ring app for querying facts"
-  [{:keys [params headers globals] :as request}]
-  (cond
-   (not (params "node"))
-   (-> (rr/response "missing node")
-       (rr/status 400))
+(defn resource-exists?
+  [req {:keys [node db] :as heap} resp]
+  (let [facts (f/facts-for-node db node)
+        heap  (assoc heap :facts facts)]
+    (if (seq facts)
+      {:result true :heap heap}
+      (let [error (str "Could not find facts for " node)
+            msg   (json/generate-string {:error error})
+            resp  (assoc resp :body msg)]
+        {:result false :response resp}))))
 
-   (not (utils/acceptable-content-type
-         "application/json"
-         (headers "accept")))
-   (-> (rr/response "must accept application/json")
-       (rr/status 406))
+(defn malformed-request?
+  [{:keys [params globals] :as req} heap resp]
+  (let [heap (-> heap
+                 (assoc :node (params "node"))
+                 (assoc :db (:scf-db globals)))]
+    (if (:node heap)
+      {:result false, :heap heap}
+      {:result true, :resp (assoc resp :body "missing node")})))
 
-   :else
-   (produce-body (params "node") (:scf-db globals))))
+(def state-machine
+  {:allowed-methods        (constantly {:result #{:get}})
+   :resource-exists?       resource-exists?
+   :malformed-request?     malformed-request?
+   :content-types-provided (constantly {:result {"application/json" facts->json}})})
+
+(def facts-app (wb/washboard-handler state-machine))

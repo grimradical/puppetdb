@@ -61,9 +61,9 @@
 
 (ns com.puppetlabs.cmdb.http.resources
   (:require [com.puppetlabs.utils :as utils]
+            [com.puppetlabs.washboard :as wb]
             [com.puppetlabs.cmdb.query.resource :as r]
-            [cheshire.core :as json]
-            [ring.util.response :as rr]))
+            [cheshire.core :as json]))
 
 (defn produce-body
   "Given a query and database connection, return a Ring response with
@@ -99,3 +99,17 @@
 
    :else
    (produce-body (params "query" "null") (:scf-db globals))))
+
+(defn malformed-request?
+  [{:keys [params globals] :as req} heap resp]
+  (try
+    (let [q       (r/query->sql db (json/parse-string query true))
+          results (vec (r/query-resources db q))]
+
+
+(def state-machine
+  {:allowed-methods (constantly {:result #{:get}})
+   :malformed-request? malformed-request?
+   :content-types-provided (constantly {:result {"application/json" resources->json}})})
+
+(def resources-app (wb/washboard-handler state-machine))
